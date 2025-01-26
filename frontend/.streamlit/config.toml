@@ -1,0 +1,13 @@
+[server]
+maxUploadSize = 1000  # Set the size limit in megabytes (e.g., 1000MB = 1GB)
+
+[theme]
+primaryColor = "#FF6347"  # Tomato
+backgroundColor = "#FFFCC7"  # Light blue
+secondaryBackgroundColor = "#F0F8FF"  # Sea green
+textColor = "#2F4F4F"  # Dark slate gray
+
+
+
+# Optional: Font settings (you can choose from 'sans serif', 'serif', or 'monospace')
+font = "sans serif"

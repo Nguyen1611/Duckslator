@@ -1,0 +1,12 @@
+TTS
+langdetect
+moviepy
+googletrans==4.0.0-rc1
+pydub
+openai-whisper
+streamlit
+streamlit-lottie
+fastapi
+uvicorn
+requests
+python-multipart

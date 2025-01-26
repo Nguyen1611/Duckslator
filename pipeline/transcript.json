@@ -1,0 +1,32 @@
+[
+    {
+        "start": 0.0,
+        "end": 6.28,
+        "sentence": "Hola a todos, mi nombre es Viet, como puedes ver, estoy hablando espa\u00f1ol en este momento, pero en realidad"
+    },
+    {
+        "start": 6.28,
+        "end": 8.16,
+        "sentence": "No conozco el espa\u00f1ol del espacio."
+    },
+    {
+        "start": 8.16,
+        "end": 12.08,
+        "sentence": "Bueno, en realidad, esto funcion\u00f3 gracias a los videos traducidos llamados Ducks m\u00e1s tarde."
+    },
+    {
+        "start": 12.08,
+        "end": 16.92,
+        "sentence": "Puede traducir mi discurso del ingl\u00e9s al espa\u00f1ol, pero baja latencia y alta precisi\u00f3n."
+    },
+    {
+        "start": 16.92,
+        "end": 21.96,
+        "sentence": "Tambi\u00e9n tenemos muchos otros idiomas, que se pueden traducir, esto es sorprendente, as\u00ed que por favor"
+    },
+    {
+        "start": 21.96,
+        "end": 22.88,
+        "sentence": "Ven a explorarlo."
+    }
+]
