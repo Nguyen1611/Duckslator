@@ -3,7 +3,8 @@
 ## Prerequisites
 
 Ensure that your system meets the following requirements before proceeding:
-- Ubuntu or a compatible Linux distribution
+- Ubuntu or a compatible Linux distribution for window user we can use wsl
+For macos we can use as it but remember some commandline here are for linux/ will update late
 - Administrative privileges (sudo access)
 
 ## Step 1: Install Dependencies
