@@ -1,12 +1,2 @@
-TTS
-langdetect
-moviepy
-googletrans==4.0.0-rc1
-pydub
-openai-whisper
-streamlit
-streamlit-lottie
-fastapi
-uvicorn
-requests
-python-multipart
+dnspython==2.7.0
+pymongo==4.14.0
