@@ -4,12 +4,28 @@ import streamlit as st
 
 # Backend API URL
 API_URL = "http://127.0.0.1:8000/process-file/"
+AUTH_START_URL = "http://127.0.0.1:8000/auth/google/start"
 
 # Page Configuration
 st.set_page_config(
     page_title="Duckslator",
     page_icon=":duck:",
 )
+
+# Capture token returned from backend OAuth callback and persist it
+def _capture_token_from_query() -> None:
+    token_value = None
+    try:
+        # Streamlit >= 1.31
+        token_value = st.query_params.get("token")
+    except Exception:
+        # Fallback for older Streamlit
+        params = st.experimental_get_query_params()
+        token_value = (params.get("token") or [None])[0]
+    if token_value:
+        st.session_state["access_token"] = token_value
+
+_capture_token_from_query()
 
 # Animation
 
@@ -30,6 +46,15 @@ with st.sidebar:
     st.title("🦆 Duckslator")
     st.subheader("The Ultimate Translator For Video And Audio.")
     st.header("⚙️ Settings")
+
+    # Auth controls
+    if "access_token" in st.session_state:
+        st.success("Logged in with Google")
+        if st.button("Logout"):
+            st.session_state.pop("access_token", None)
+            st.rerun()
+    else:
+        st.link_button("Login with Google", AUTH_START_URL)
     
     if "file_uploader_key" not in st.session_state:
         st.session_state["file_uploader_key"] = 0
@@ -97,7 +122,10 @@ with st.sidebar:
                 # Send file and language selection to the backend
                 files = {"file": uploaded_file}
                 data = {"language": selected_language}
-                response = requests.post(API_URL, files=files, data=data)
+                headers = {}
+                if "access_token" in st.session_state:
+                    headers["Authorization"] = f"Bearer {st.session_state['access_token']}"
+                response = requests.post(API_URL, files=files, data=data, headers=headers)
 
                 # Check if the request was successful
                 if response.status_code == 200:

@@ -1,10 +1,12 @@
 from datetime import datetime
 
 from bson import ObjectId
-from fastapi import Depends, FastAPI, HTTPException, status, Form
+from fastapi import Depends, FastAPI, HTTPException, status, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pymongo import ReturnDocument
+
+from dotenv import load_dotenv
 
 from pipeline.authentication.auth import create_access_token, decode_token, hash_pw, verify_pw
 from pipeline.database.connection import users_coll, db
@@ -17,13 +19,27 @@ import shutil
 import uuid
 
 import asyncio
+from fastapi.middleware.cors import CORSMiddleware
+
+from pipeline.authentication.google_auth import verify_google_token
+from pipeline.database.models import GoogleAuthRequest, GoogleUserInfo
+
+from fastapi.responses import JSONResponse
+from typing import Optional
+
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import secrets
+
+load_dotenv()
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 app = FastAPI()
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login", auto_error=False)
 
 @app.get("/", include_in_schema=False)
 def root():
@@ -38,13 +54,16 @@ async def init_indexes() -> None:
 async def register(payload: UserCreate):
     if await users_coll.find_one({"email": payload.email}):
         raise HTTPException(status_code=400, detail="Email already registered")
-
+    
+    verification_token = generate_verification_token()
     now = datetime.utcnow()
     doc = {
         "name": {"first": payload.first_name, "last": payload.last_name},
         "age": payload.age,
         "email": payload.email,
         "passwordHash": hash_pw(payload.password),
+        "email_verified": False,
+        "verification_token": verification_token,
         "membership": {"tier": "normal", "since": now},
         "usage": {
             "videosTranslated": 0,
@@ -54,29 +73,68 @@ async def register(payload: UserCreate):
         "createdAt": now,
         "updatedAt": now,
     }
-
+    
     result = await users_coll.insert_one(doc)
+    
+    # Send verification email
+    await send_verification_email(payload.email, verification_token)
+    
     return UserOut(
         id=str(result.inserted_id),
         firstName=doc["name"]["first"],
         lastName=doc["name"]["last"],
         email=doc["email"],
+        email_verified=False
     )
 
-@app.post("/login", response_model=Token)
-async def login(form: OAuth2PasswordRequestForm = Depends()):
-    user = await users_coll.find_one({"email": form.username})
-    if not user or not verify_pw(form.password, user["passwordHash"]):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-        )
+def generate_verification_token():
+    return secrets.token_urlsafe(32)
 
-    token = create_access_token({"sub": str(user["_id"]), "email": user["email"]})
-    return Token(access_token=token)
-
-async def get_current_user(token: str = Depends(oauth2_scheme)):
+async def send_verification_email(email: str, token: str):
+    """Send verification email - fixed version"""
+    smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    sender_email = os.getenv("SENDER_EMAIL")
+    sender_password = os.getenv("SENDER_PASSWORD")
+    
+    if not sender_email or not sender_password:
+        print("SMTP credentials not configured, skipping email send")
+        return False
+    
+    verification_url = f"http://127.0.0.1:8000/verify-email/{token}"
+    body = f"""
+    Welcome to Duckslator!
+    
+    Please verify your email by clicking this link:
+    {verification_url}
+    
+    If you didn't create this account, please ignore this email.
+    """
+    
+    msg = MIMEMultipart()
+    msg['From'] = sender_email
+    msg['To'] = email
+    msg['Subject'] = "Verify your Duckslator account"
+    msg.attach(MIMEText(body, 'plain'))
+    
     try:
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(sender_email, sender_password)
+        server.send_message(msg)
+        server.quit()
+        print(f"Verification email sent to {email}")
+        return True
+    except Exception as e:
+        print(f"Failed to send email to {email}: {e}")
+        return False
+
+async def get_current_user(request: Request, token: Optional[str] = Depends(oauth2_scheme)):
+    try:
+        if not token:
+            token = request.cookies.get("access_token")
+        if not token:
+            raise ValueError
         payload = decode_token(token)
         uid = payload.get("sub")
         if uid is None:
@@ -323,6 +381,83 @@ async def simulate_latest_job_safe_copy(current=Depends(get_current_user)):
         "download_url": "/download/latest"
     }
 
+# Add Google OAuth endpoints
+@app.post("/auth/google", response_model=Token)
+async def google_auth(request: GoogleAuthRequest, response: Response):
+    """Authenticate user with Google OAuth"""
+    try:
+        # Verify Google token
+        google_user = await verify_google_token(request.id_token)
+        
+        # Check if email is verified
+        if not google_user['email_verified']:
+            raise HTTPException(
+                status_code=400, 
+                detail="Email not verified with Google"
+            )
+        
+        # Check if user exists
+        existing_user = await users_coll.find_one({"email": google_user['email']})
+        
+        if existing_user:
+            token = create_access_token({
+                "sub": str(existing_user["_id"]),
+                "email": existing_user["email"]
+            })
+            response.set_cookie(
+                key="access_token",
+                value=token,
+                httponly=True,
+                samesite="lax",
+                secure=False,  # set True in production (HTTPS)
+                max_age=60 * 60,
+            )
+            return Token(access_token=token)
+        else:
+            # Create new user from Google info
+            now = datetime.utcnow()
+            names = google_user['name'].split(' ', 1)
+            first_name = names[0] if names else "Unknown"
+            last_name = names[1] if len(names) > 1 else ""
+            
+            doc = {
+                "google_id": google_user['sub'],
+                "name": {"first": first_name, "last": last_name},
+                "email": google_user['email'],
+                "email_verified": True,
+                "picture": google_user.get('picture'),
+                "auth_provider": "google",
+                "membership": {"tier": "normal", "since": now},
+                "usage": {
+                    "videosTranslated": 0,
+                    "minutesTranslated": 0,
+                    "lastReset": now,
+                },
+                "createdAt": now,
+                "updatedAt": now,
+            }
+            
+            result = await users_coll.insert_one(doc)
+            
+            token = create_access_token({
+                "sub": str(result.inserted_id), 
+                "email": doc["email"]
+            })
+            response.set_cookie(
+                key="access_token",
+                value=token,
+                httponly=True,
+                samesite="lax",
+                secure=False,  # set True in production (HTTPS)
+                max_age=60 * 60,
+            )
+            return Token(access_token=token)
+            
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Authentication failed")
+
 @app.delete("/jobs/{job_id}")
 async def delete_job(job_id: str, current=Depends(get_current_user)):
     job = await db.jobs.find_one({"_id": ObjectId(job_id), "user_id": current["_id"]})
@@ -340,4 +475,23 @@ async def delete_job(job_id: str, current=Depends(get_current_user)):
     await db.jobs.delete_one({"_id": ObjectId(job_id)})
     
     return {"message": "Job and associated files deleted successfully"}
+
+@app.post("/login", response_model=Token)
+async def login(response: Response, form: OAuth2PasswordRequestForm = Depends()):
+    user = await users_coll.find_one({"email": form.username})
+    if not user or not verify_pw(form.password, user["passwordHash"]):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
+    
+    if not user.get("email_verified", False):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Please verify your email before logging in")
+    
+    token = create_access_token({"sub": str(user["_id"]), "email": user["email"]})
+    response.set_cookie("access_token", token, httponly=True, samesite="lax", secure=False, max_age=60*60)
+    return Token(access_token=token)
+
+@app.post("/logout")
+def logout():
+    resp = JSONResponse({"message": "logged out"})
+    resp.delete_cookie("access_token")
+    return resp
 

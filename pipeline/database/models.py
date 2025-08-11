@@ -3,6 +3,18 @@ from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 import bcrypt
 
+# Google OAuth response
+class GoogleAuthRequest(BaseModel):
+    id_token: str
+
+# User profile from Google
+class GoogleUserInfo(BaseModel):
+    email: EmailStr
+    email_verified: bool
+    name: str
+    picture: Optional[str] = None
+    sub: str  # Google user ID
+
 # User input schema
 class UserCreate(BaseModel):
     first_name: str = Field(..., alias="firstName")
@@ -17,6 +29,7 @@ class UserOut(BaseModel):
     firstName: str
     lastName: str
     email: EmailStr
+    email_verified: bool = False
 
 class Token(BaseModel):
     access_token: str
