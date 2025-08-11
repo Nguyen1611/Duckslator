@@ -3,3 +3,5 @@ venv/
 *.mov
 *.mp4
 *.wav.env
+.env
+.env
