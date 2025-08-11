@@ -6,9 +6,9 @@ from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pymongo import ReturnDocument
 
-from auth import create_access_token, decode_token, hash_pw, verify_pw
-from db import users_coll, db
-from models import Token, UserCreate, UserOut
+from pipeline.authentication.auth import create_access_token, decode_token, hash_pw, verify_pw
+from pipeline.database.connection import users_coll, db
+from pipeline.database.models import Token, UserCreate, UserOut
 
 from fastapi import File, UploadFile
 from fastapi.responses import FileResponse
@@ -252,69 +252,6 @@ async def download_latest_result(current=Depends(get_current_user)):
     
     return response
 
-@app.post("/simulate-latest-job")
-async def simulate_latest_job_processing(current=Depends(get_current_user)):
-    """Simulate processing completion for the most recent queued job"""
-    
-    # Find the most recent queued job
-    job = await db.jobs.find_one(
-        {"user_id": current["_id"], "status": "queued"},
-        sort=[("created_at", -1)]
-    )
-    
-    if not job:
-        raise HTTPException(status_code=404, detail="No queued jobs found")
-    
-    job_id = str(job["_id"])
-    
-    # Use the existing simulate function logic
-    input_file = job.get("input_file_path")
-    if not input_file:
-        raise HTTPException(status_code=400, detail="No input file found")
-    
-    input_path = os.path.join(UPLOAD_DIR, input_file)
-    if not os.path.exists(input_path):
-        raise HTTPException(status_code=404, detail="Input file missing")
-    
-    # Generate result filename
-    ext = os.path.splitext(input_file)[1]
-    result_filename = f"job_{job_id}_result{ext}"
-    result_path = os.path.join(UPLOAD_DIR, result_filename)
-    
-    # Copy input file to result file (simulating processing) - SAFE METHOD
-    try:
-        with open(input_path, 'rb') as src:
-            with open(result_path, 'wb') as dst:
-                while True:
-                    chunk = src.read(65536)  # 64KB chunks
-                    if not chunk:
-                        break
-                    dst.write(chunk)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Copy failed: {str(e)}")
-
-    # Verify copy was successful
-    if os.path.getsize(input_path) != os.path.getsize(result_path):
-        raise HTTPException(status_code=500, detail="File copy verification failed")
-    # Update job status
-    await db.jobs.update_one(
-        {"_id": job["_id"]},
-        {
-            "$set": {
-                "status": "completed",
-                "progress": 100,
-                "result_file_path": result_filename,
-                "updated_at": datetime.utcnow()
-            }
-        }
-    )
-    
-    return {
-        "message": "Latest job processing simulated successfully",
-        "job_id": job_id,
-        "status": "completed",
-        "download_url": "/download/latest"
-    }
 
 @app.post("/simulate-latest-job-safe-copy")
 async def simulate_latest_job_safe_copy(current=Depends(get_current_user)):
@@ -404,23 +341,3 @@ async def delete_job(job_id: str, current=Depends(get_current_user)):
     
     return {"message": "Job and associated files deleted successfully"}
 
-@app.get("/download/original/{job_id}")
-async def download_original_file(job_id: str, current=Depends(get_current_user)):
-    """Download the original uploaded file to test if it's playable"""
-    
-    job = await db.jobs.find_one({"_id": ObjectId(job_id), "user_id": current["_id"]})
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    
-    if not job.get("input_file_path"):
-        raise HTTPException(status_code=404, detail="No input file available")
-    
-    file_path = os.path.join(UPLOAD_DIR, job["input_file_path"])
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Input file missing from disk")
-    
-    return FileResponse(
-        path=file_path, 
-        filename=f"original_{job['original_filename']}", 
-        media_type="application/octet-stream"
-    )
