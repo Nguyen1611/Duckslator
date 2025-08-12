@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from bson import ObjectId
 from fastapi import Depends, FastAPI, HTTPException, status, Form, Request, Response
@@ -32,6 +32,10 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import secrets
 
+from fastapi.responses import HTMLResponse
+
+import re
+
 load_dotenv()
 
 UPLOAD_DIR = "uploads"
@@ -52,8 +56,14 @@ async def init_indexes() -> None:
 
 @app.post("/register", response_model=UserOut)
 async def register(payload: UserCreate):
+    # Check if email already exists
     if await users_coll.find_one({"email": payload.email}):
         raise HTTPException(status_code=400, detail="Email already registered")
+    
+    # Validate password strength
+    password_validation = validate_password_strength(payload.password)
+    if not password_validation["valid"]:
+        raise HTTPException(status_code=400, detail=password_validation["message"])
     
     verification_token = generate_verification_token()
     now = datetime.utcnow()
@@ -86,6 +96,40 @@ async def register(payload: UserCreate):
         email=doc["email"],
         email_verified=False
     )
+
+def validate_password_strength(password: str) -> dict:
+    """Validate password meets all requirements"""
+    if len(password) < 8:
+        return {
+            "valid": False,
+            "message": "Password must be at least 8 characters long"
+        }
+    
+    if not re.search(r'[A-Z]', password):
+        return {
+            "valid": False,
+            "message": "Password must contain at least one uppercase letter"
+        }
+    
+    if not re.search(r'[a-z]', password):
+        return {
+            "valid": False,
+            "message": "Password must contain at least one lowercase letter"
+        }
+    
+    if not re.search(r'[0-9]', password):
+        return {
+            "valid": False,
+            "message": "Password must contain at least one number"
+        }
+    
+    if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
+        return {
+            "valid": False,
+            "message": "Password must contain at least one special character (!@#$%^&*(),.?\":{}|<>)"
+        }
+    
+    return {"valid": True, "message": "Password meets all requirements"}
 
 def generate_verification_token():
     return secrets.token_urlsafe(32)
@@ -128,6 +172,34 @@ async def send_verification_email(email: str, token: str):
     except Exception as e:
         print(f"Failed to send email to {email}: {e}")
         return False
+
+@app.post("/resend-verification-email")
+async def resend_verification_email(email: str):
+    """Resend verification email for unverified accounts"""
+    user = await users_coll.find_one({"email": email})
+    if not user:
+        return {"message": "If the email exists, a verification email has been sent"}
+    
+    if user.get("email_verified", False):
+        return {"message": "Email is already verified"}
+    
+    # Generate new verification token
+    verification_token = generate_verification_token()
+    
+    # Update user with new token
+    await users_coll.update_one(
+        {"_id": user["_id"]},
+        {
+            "$set": {
+                "verification_token": verification_token,
+                "updatedAt": datetime.utcnow()
+            }
+        }
+    )
+    
+    # Send verification email
+    await send_verification_email(email, verification_token)
+    return {"message": f"Verification email sent to {email}"}
 
 async def get_current_user(request: Request, token: Optional[str] = Depends(oauth2_scheme)):
     try:
@@ -495,3 +567,317 @@ def logout():
     resp.delete_cookie("access_token")
     return resp
 
+def generate_password_reset_token():
+    return secrets.token_urlsafe(32)
+
+@app.post("/forgot-password")
+async def forgot_password(email: str):
+    """Request password reset for email/password users"""
+    user = await users_coll.find_one({"email": email})
+    if not user:
+        # Don't reveal if user exists or not (security best practice)
+        return {"message": "If the email exists, a password reset link has been sent"}
+    
+    # Only allow password reset for email/password users, not Google users
+    if user.get("auth_provider") == "google":
+        return {"message": "Google users cannot reset password through this method"}
+    
+    # Generate reset token
+    reset_token = generate_password_reset_token()
+    token_expiry = datetime.utcnow() + timedelta(hours=24)  # 24 hour expiry
+    
+    # Store reset token and expiry
+    await users_coll.update_one(
+        {"_id": user["_id"]},
+        {
+            "$set": {
+                "password_reset_token": reset_token,
+                "password_reset_expiry": token_expiry,
+                "updatedAt": datetime.utcnow()
+            }
+        }
+    )
+    
+    # Send password reset email
+    reset_url = f"http://127.0.0.1:8000/reset-password?token={reset_token}"
+    body = f"""
+    Password Reset Request
+    
+    You requested a password reset for your Duckslator account.
+    
+    Click this link to reset your password:
+    {reset_url}
+    
+    This link expires in 24 hours.
+    
+    If you didn't request this, please ignore this email.
+    """
+    
+    # Send email using your existing email function
+    email_sent = await send_password_reset_email(email, body)
+    
+    if email_sent:
+        return {"message": "Password reset email sent"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to send password reset email")
+
+async def send_password_reset_email(email: str, body: str):
+    """Send password reset email"""
+    smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    sender_email = os.getenv("SENDER_EMAIL")
+    sender_password = os.getenv("SENDER_PASSWORD")
+    
+    if not sender_email or not sender_password:
+        print("SMTP credentials not configured, skipping email send")
+        return False
+    
+    msg = MIMEMultipart()
+    msg['From'] = sender_email
+    msg['To'] = email
+    msg['Subject'] = "Password Reset - Duckslator"
+    msg.attach(MIMEText(body, 'plain'))
+    
+    try:
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(sender_email, sender_password)
+        server.send_message(msg)
+        server.quit()
+        print(f"Password reset email sent to {email}")
+        return True
+    except Exception as e:
+        print(f"Failed to send password reset email to {email}: {e}")
+        return False
+
+
+
+"""
+These 2 functions below are important for the password reset process.
+The get endpoint shows the password reset form.
+The post endpoint processes the password reset.
+User never manually use these 2 endpoints but we have to keep it because browser needs it.
+Can hide it when design UI later.
+"""
+
+@app.get("/reset-password")
+async def reset_password_page(token: str):
+    """Show password reset form page with real-time visual validation"""
+    user = await users_coll.find_one({
+        "password_reset_token": token,
+        "password_reset_expiry": {"$gt": datetime.utcnow()}
+    })
+    
+    if not user:
+        return {"error": "Invalid or expired reset token"}
+    
+    # Enhanced form with real-time visual validation
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Reset Password</title>
+        <style>
+            .requirement {{
+                margin: 5px 0;
+                padding: 5px;
+                border-radius: 3px;
+                transition: all 0.3s ease;
+            }}
+            .requirement.met {{
+                background-color: #d4edda;
+                color: #155724;
+                border: 1px solid #c3e6cb;
+            }}
+            .requirement.not-met {{
+                background-color: #f8d7da;
+                color: #721c24;
+                border: 1px solid #f5c6cb;
+            }}
+            .check-icon {{
+                margin-right: 8px;
+                font-weight: bold;
+            }}
+            .password-field {{
+                margin: 10px 0;
+                padding: 8px;
+                border: 2px solid #ddd;
+                border-radius: 4px;
+                width: 250px;
+                font-size: 14px;
+            }}
+            .password-field:focus {{
+                border-color: #007bff;
+                outline: none;
+                box-shadow: 0 0 5px rgba(0,123,255,0.3);
+            }}
+            .reset-button {{
+                background-color: #007bff;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 16px;
+                margin-top: 10px;
+            }}
+            .reset-button:hover {{
+                background-color: #0056b3;
+            }}
+            .reset-button:disabled {{
+                background-color: #6c757d;
+                cursor: not-allowed;
+            }}
+            .container {{
+                max-width: 500px;
+                margin: 50px auto;
+                padding: 20px;
+                font-family: Arial, sans-serif;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h2>Reset Your Password</h2>
+            
+            <div style="margin-bottom: 20px;">
+                <h3>Password Requirements:</h3>
+                <div class="requirement not-met" id="length-check">
+                    <span class="check-icon">❌</span>At least 8 characters long
+                </div>
+                <div class="requirement not-met" id="uppercase-check">
+                    <span class="check-icon">❌</span>At least one uppercase letter (A-Z)
+                </div>
+                <div class="requirement not-met" id="lowercase-check">
+                    <span class="check-icon">❌</span>At least one lowercase letter (a-z)
+                </div>
+                <div class="requirement not-met" id="number-check">
+                    <span class="check-icon">❌</span>At least one number (0-9)
+                </div>
+                <div class="requirement not-met" id="special-check">
+                    <span class="check-icon">❌</span>At least one special character (!@#$%^&*(),.?":{{}}|<>)</span>
+                </div>
+                <div class="requirement not-met" id="match-check">
+                    <span class="check-icon">❌</span>Passwords match
+                </div>
+            </div>
+            
+            <input type="password" id="new_password" class="password-field" placeholder="New Password" required><br>
+            <input type="password" id="confirm_password" class="password-field" placeholder="Confirm New Password" required><br>
+            <button id="reset-btn" class="reset-button" onclick="resetPassword()" disabled>Reset Password</button>
+        </div>
+        
+        <script>
+        function updateValidation() {{
+            const newPassword = document.getElementById('new_password').value;
+            const confirmPassword = document.getElementById('confirm_password').value;
+            const resetBtn = document.getElementById('reset-btn');
+            
+            // Check each requirement
+            const lengthMet = newPassword.length >= 8;
+            const uppercaseMet = /[A-Z]/.test(newPassword);
+            const lowercaseMet = /[a-z]/.test(newPassword);
+            const numberMet = /[0-9]/.test(newPassword);
+            const specialMet = /[!@#$%^&*(),.?":{{}}|<>]/.test(newPassword);
+            const matchMet = newPassword === confirmPassword && newPassword.length > 0;
+            
+            // Update visual indicators
+            updateRequirement('length-check', lengthMet);
+            updateRequirement('uppercase-check', uppercaseMet);
+            updateRequirement('lowercase-check', lowercaseMet);
+            updateRequirement('number-check', numberMet);
+            updateRequirement('special-check', specialMet);
+            updateRequirement('match-check', matchMet);
+            
+            // Enable/disable reset button
+            const allMet = lengthMet && uppercaseMet && lowercaseMet && numberMet && specialMet && matchMet;
+            resetBtn.disabled = !allMet;
+        }}
+        
+        function updateRequirement(elementId, isMet) {{
+            const element = document.getElementById(elementId);
+            const checkIcon = element.querySelector('.check-icon');
+            
+            if (isMet) {{
+                element.className = 'requirement met';
+                checkIcon.textContent = '✅';
+            }} else {{
+                element.className = 'requirement not-met';
+                checkIcon.textContent = '❌';
+            }}
+        }}
+        
+        function resetPassword() {{
+            const newPassword = document.getElementById('new_password').value;
+            const confirmPassword = document.getElementById('confirm_password').value;
+            
+            // Final validation (should already be met due to button state)
+            if (newPassword !== confirmPassword) {{
+                alert('Passwords do not match. Please try again.');
+                return;
+            }}
+            
+            // Create form data
+            const formData = new FormData();
+            formData.append('token', '{token}');
+            formData.append('new_password', newPassword);
+            
+            // Send POST request with form data
+            fetch('/reset-password', {{
+                method: 'POST',
+                body: formData
+            }})
+            .then(response => response.json())
+            .then(data => {{
+                alert(data.message || 'Password reset successfully!');
+                window.close();
+            }})
+            .catch(error => {{
+                alert('Error resetting password');
+                console.error('Error:', error);
+            }});
+        }}
+        
+        // Add event listeners for real-time validation
+        document.getElementById('new_password').addEventListener('input', updateValidation);
+        document.getElementById('confirm_password').addEventListener('input', updateValidation);
+        
+        // Initial validation
+        updateValidation();
+        </script>
+    </body>
+    </html>
+    """
+    
+    return HTMLResponse(content=html_content)
+@app.post("/reset-password")
+async def reset_password(token: str = Form(...), new_password: str = Form(...)):
+    """Reset password using reset token from form data"""
+    # Find user with valid reset token
+    user = await users_coll.find_one({
+        "password_reset_token": token,
+        "password_reset_expiry": {"$gt": datetime.utcnow()}
+    })
+    
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+    
+    # Hash new password
+    new_password_hash = hash_pw(new_password)
+    
+    # Update password and clear reset token
+    await users_coll.update_one(
+        {"_id": user["_id"]},
+        {
+            "$set": {
+                "passwordHash": new_password_hash,
+                "updatedAt": datetime.utcnow()
+            },
+            "$unset": {
+                "password_reset_token": "",
+                "password_reset_expiry": ""
+            }
+        }
+    )
+    
+    return {"message": "Password reset successfully"}
