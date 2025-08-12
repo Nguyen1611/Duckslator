@@ -1,5 +1,5 @@
 __pycache__/
-duckvenv/
+duckenv/
 *.mov
 *.mp4
 *.wav
