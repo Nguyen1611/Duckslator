@@ -1,5 +1,51 @@
-__pycache__/
-duckenv/
+
 *.mov
 *.mp4
 *.wav
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environments
+duckenv/
+venv/
+env/
+ENV/
+.venv/
+
+# Environment variables and secrets
+.env
+
+# Logs
+logs/
+*.log
+
+# Data outputs (optional: keep if you want to share sample data)
+data/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE/editor folders
+.vscode/
+.idea/
+
+# Python egg and build artifacts
+*.egg-info/
+dist/
+build/
+
+# Others
+others/
+*.pdf
+*.postman_collection.json
+
+# Cursor
+#  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to
+#  exclude from AI features like autocomplete and code analysis. Recommended for sensitive data
+#  refer to https://docs.cursor.com/context/ignore-files
+.cursorignore
+.cursorindexingignore
