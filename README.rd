@@ -75,3 +75,4 @@ cd frontend
 streamlit run Home.py
 backend
 cd pipeline
+uvicorn backend:app --reload
