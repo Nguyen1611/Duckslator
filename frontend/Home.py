@@ -1,6 +1,6 @@
 import os
 import requests
-import streamlit as st
+import streamlit as st 
 
 # Backend API URL
 API_URL = "http://127.0.0.1:8000/process-file/"
@@ -39,7 +39,7 @@ with st.sidebar:
     
 
     
-    uploaded_file = st.file_uploader("**Upload an audio or video file.**", type=["wav", "mp4", "mov"], key=st.session_state["file_uploader_key"],accept_multiple_files=False,)
+    uploaded_file = st.file_uploader("**Upload an audio or video file.**", type=["wav", "mp4", "mov", "mp3"], key=st.session_state["file_uploader_key"],accept_multiple_files=False,)
     
     if st.button("🗑️ Clear Uploaded File"):
         st.session_state["file_uploader_key"] += 1
