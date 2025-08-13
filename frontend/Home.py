@@ -22,7 +22,7 @@ header_placeholder = st.empty()
 file_details_placeholder = st.empty()  # Placeholder for file details
 preview_placeholder = st.empty() 
 
-placeholder.image("gif2.gif", use_container_width=False, width=600)
+placeholder.image("/Users/vietbui/Desktop/Projects/QHacks_2025/Duckslator/frontend/tools/gif2.gif", use_container_width=False, width=600)
 
 
 # Side bar
@@ -87,7 +87,7 @@ with st.sidebar:
         header_placeholder.empty()
 
         if uploaded_file is not None and selected_language:
-            placeholder_gifload.image("gif1.gif", use_container_width=False, width=700)
+            placeholder_gifload.image("/Users/vietbui/Desktop/Projects/QHacks_2025/Duckslator/frontend/tools/gif1.gif", use_container_width=False, width=700)
             try:
                 # Remove language emoji for backend compatibility
                 selected_language = selected_language.split(" ")[0]
