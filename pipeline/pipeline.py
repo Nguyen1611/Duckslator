@@ -1,7 +1,7 @@
-from backend import audio_extractor 
-from backend import speech_to_text
-from backend import text_translation
-from backend.utils.audio_reattached import process_video_with_dub
+from backend.translation import audio_extractor 
+from backend.translation import speech_to_text
+from backend.translation import text_translation
+from backend.translation.utils.audio_reattached import process_video_with_dub
 
 """
     The function lang_convert() is used to convert the language name to its respective language code.

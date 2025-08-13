@@ -10,3 +10,4 @@ fastapi
 uvicorn
 requests
 python-multipart
+stripe

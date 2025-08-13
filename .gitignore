@@ -17,6 +17,8 @@ ENV/
 
 # Environment variables and secrets
 .env
+.env.*
+.*
 
 # Logs
 logs/
@@ -44,6 +46,7 @@ others/
 *.postman_collection.json
 testing/
 *.gif
+
 
 # Cursor
 #  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to
