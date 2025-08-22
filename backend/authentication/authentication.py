@@ -210,18 +210,25 @@ async def get_current_user(
     Raises:
         HTTPException: 401 if token is invalid or missing
     """
+    print(f"get_current_user called - token from header: {token}")
+    print(f"Cookies: {request.cookies}")
+    
     if token:
         # Token provided in Authorization header
+        print(f"Using token from Authorization header: {token[:20]}...")
         try:
             payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
             user_id = payload.get("sub")
+            print(f"Decoded payload: {payload}")
             if user_id is None:
+                print("No user_id in payload")
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Invalid token",
                     headers={"WWW-Authenticate": "Bearer"},
                 )
-        except JWTError:
+        except JWTError as e:
+            print(f"JWT decode error: {e}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token",
@@ -230,7 +237,9 @@ async def get_current_user(
     else:
         # Try to get token from cookie
         token = request.cookies.get("access_token")
+        print(f"Token from cookie: {token[:20] if token else 'None'}...")
         if not token:
+            print("No token in cookie")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Not authenticated",
@@ -239,13 +248,16 @@ async def get_current_user(
         try:
             payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
             user_id = payload.get("sub")
+            print(f"Decoded cookie payload: {payload}")
             if user_id is None:
+                print("No user_id in cookie payload")
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Invalid token",
                     headers={"WWW-Authenticate": "Bearer"},
                 )
-        except JWTError:
+        except JWTError as e:
+            print(f"JWT decode error from cookie: {e}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token",
@@ -253,14 +265,17 @@ async def get_current_user(
             )
 
     # Get user from database
+    print(f"Looking for user with ID: {user_id}")
     user = await users_coll.find_one({"_id": ObjectId(user_id)})
     if user is None:
+        print(f"User not found in database for ID: {user_id}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    print(f"User found: {user.get('email', 'No email')}")
     return user
 
 # =============================================================================
@@ -451,7 +466,7 @@ async def google_auth_start():
     """
     # Google OAuth configuration
     google_client_id = os.getenv("GOOGLE_CLIENT_ID")
-    redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://127.0.0.1:8001/auth/google/callback")
+    redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8001/auth/google/callback")
     
     if not google_client_id:
         raise HTTPException(
@@ -490,7 +505,7 @@ async def google_auth_callback(code: str, response: Response):
         # Exchange code for tokens
         google_client_id = os.getenv("GOOGLE_CLIENT_ID")
         google_client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-        redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://127.0.0.1:8001/auth/google/callback")
+        redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8001/auth/google/callback")
         
         if not google_client_id or not google_client_secret:
             raise HTTPException(
@@ -571,20 +586,10 @@ async def google_auth_callback(code: str, response: Response):
                 "email": doc["email"]
             })
         
-        # Set authentication cookie
-        response.set_cookie(
-            key="access_token",
-            value=token,
-            httponly=True,
-            samesite="lax",
-            secure=False,  # Set True in production with HTTPS
-            max_age=60 * 60,
-        )
-        
-        # Redirect to frontend with success
+        # Redirect to frontend with success and token
         frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
         return RedirectResponse(
-            url=f"{frontend_url}/oauth-callback?auth=success",
+            url=f"{frontend_url}/oauth-callback?auth=success&token={token}",
             status_code=302
         )
         
@@ -832,4 +837,30 @@ async def get_current_user_profile(current_user: dict = Depends(get_current_user
         email=current_user["email"],
         email_verified=current_user.get("email_verified", False)
     )
+
+@router.get("/test-auth")
+async def test_auth(request: Request):
+    """
+    Test endpoint to check authentication status and cookies.
+    """
+    cookies = request.cookies
+    auth_header = request.headers.get("authorization")
+    
+    print(f"=== TEST AUTH DEBUG ===")
+    print(f"All headers: {dict(request.headers)}")
+    print(f"Cookies: {dict(cookies)}")
+    print(f"Auth header: {auth_header}")
+    print(f"Host: {request.headers.get('host')}")
+    print(f"Origin: {request.headers.get('origin')}")
+    print(f"Referer: {request.headers.get('referer')}")
+    print(f"=======================")
+    
+    return {
+        "cookies": dict(cookies),
+        "auth_header": auth_header,
+        "user_agent": request.headers.get("user-agent"),
+        "host": request.headers.get("host"),
+        "origin": request.headers.get("origin"),
+        "all_headers": dict(request.headers),
+    }
 

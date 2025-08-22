@@ -206,7 +206,7 @@ async def process_job(job_id: str, current=Depends(get_current_user)):
     }
 
 @router.get("/{job_id}/download")
-async def download_result(job_id: str, current=Depends(get_current_user)):
+async def download_result(job_id: str, token: str = None, current=Depends(get_current_user)):
     """
     Download the result file for a completed job.
     """

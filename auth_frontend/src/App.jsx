@@ -7,8 +7,10 @@ import OAuthCallback from './components/OAuthCallback.jsx';
 import JobsList from './components/JobsList.jsx';
 import JobUpload from './components/JobUpload.jsx';
 import JobDetail from './components/JobDetail.jsx';
+import { useAuth } from './components/AuthContext.jsx';
 
 export default function App() {
+  const { isLoggedIn } = useAuth();
   return (
     <div className="App">
       <div className="container">
@@ -16,16 +18,16 @@ export default function App() {
         <p className="app-subtitle">Authentication & Jobs</p>
         <nav style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
           <Link to="/">Auth</Link>
-          <Link to="/jobs">Jobs</Link>
+          {isLoggedIn && <Link to="/jobs">Jobs</Link>}
         </nav>
         <Routes>
           <Route path="/" element={<AuthTabs />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/auth/verify-email/:token" element={<VerifyEmailSuccess />} />
           <Route path="/oauth-callback" element={<OAuthCallback />} />
-          <Route path="/jobs" element={<JobsList />} />
-          <Route path="/jobs/upload" element={<JobUpload />} />
-          <Route path="/jobs/:jobId" element={<JobDetail />} />
+          <Route path="/jobs" element={isLoggedIn ? <JobsList /> : <Navigate to="/" replace />} />
+          <Route path="/jobs/upload" element={isLoggedIn ? <JobUpload /> : <Navigate to="/" replace />} />
+          <Route path="/jobs/:jobId" element={isLoggedIn ? <JobDetail /> : <Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>

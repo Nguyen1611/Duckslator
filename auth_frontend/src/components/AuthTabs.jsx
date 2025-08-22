@@ -1,29 +1,34 @@
 // frontend/src/components/AuthTabs.jsx
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import LoginForm from './LoginForm.jsx';
 import RegisterForm from './RegisterForm.jsx';
 import GoogleAuth from './GoogleAuth.jsx';
 import ForgotPassword from './ForgotPassword.jsx';
 import ResendEmail from './ResendEmail.jsx';
 import Profile from './Profile.jsx';
+import { useAuth } from './AuthContext.jsx';
 
 const AuthTabs = () => {
   const [activeTab, setActiveTab] = useState('login');
-  const [authStatus, setAuthStatus] = useState({
-    isLoggedIn: false,
-    user: null,
-    token: null,
-  });
+  const { isLoggedIn, refresh, setAuthenticated } = useAuth();
+  const [authStatus, setAuthStatus] = useState({ isLoggedIn: false });
 
   const updateAuthStatus = (status) => {
     setAuthStatus(status);
+    if (status?.isLoggedIn) setAuthenticated(status.user);
+    else refresh();
   };
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
   };
 
-  if (authStatus.isLoggedIn) {
+  useEffect(() => {
+    if (isLoggedIn) setAuthStatus({ isLoggedIn: true });
+    else setAuthStatus({ isLoggedIn: false });
+  }, [isLoggedIn]);
+
+  if (authStatus.isLoggedIn || isLoggedIn) {
     return <Profile user={authStatus.user} token={authStatus.token} />;
   }
 
