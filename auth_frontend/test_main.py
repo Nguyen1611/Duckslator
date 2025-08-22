@@ -7,7 +7,8 @@ import os
 # Add the Duckslator root to import pipeline/*
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from pipeline.authentication.authentication import router as auth_router
+from backend.authentication.authentication import router as auth_router
+from backend.jobs.routes import router as jobs_router
 
 app = FastAPI(title="Duckslator Authentication Test Server")
 
@@ -21,6 +22,7 @@ app.add_middleware(
 
 # Include router WITH the prefix here
 app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
+app.include_router(jobs_router)
 
 @app.get("/")
 async def root():

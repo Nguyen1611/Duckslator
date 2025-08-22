@@ -27,9 +27,11 @@ const LoginForm = ({ updateAuthStatus, onSuccess }) => {
       fd.append('email', formData.email);
       fd.append('password', formData.password);
 
-      const response = await fetch('http://127.0.0.1:8001/auth/login', {
+      const BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:8001';
+      const response = await fetch(`${BASE_URL}/auth/login`, {
         method: 'POST',
-        body: fd
+        body: fd,
+        credentials: 'include'
       });
 
       const data = await response.json();
